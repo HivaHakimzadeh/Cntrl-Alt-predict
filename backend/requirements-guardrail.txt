@@ -1,0 +1,18 @@
+# Core (the notebook + library + tests)
+pydantic>=2.5
+numpy
+scipy
+scikit-learn>=1.3
+xgboost>=2.0          # falls back to scikit-learn automatically if it cannot be imported
+pandas
+matplotlib
+jupyter               # or use the lab's Jupyter image
+pytest>=8.0
+python-dotenv>=1.0
+
+# Generative layer: preinstalled in the LinuxONE lab image per the ML Lab 02 slide (not installed/tested in our sandbox)
+# llama-cpp-python
+
+# Optional / off by default
+# anthropic           # only used if GUARDRAIL_ALLOW_EXTERNAL_LLM=1
+# streamlit>=1.37     # extras/dashboard only
