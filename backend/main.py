@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from dashboard_api import router as dashboard_router
 
 app = FastAPI()
+app.include_router(dashboard_router)
 
 app.add_middleware(
     CORSMiddleware,
