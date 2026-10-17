@@ -67,6 +67,25 @@ INJECTION_PATTERNS = [re.compile(p, re.I) for p in (
 
 TARGET_KEYS = ("to", "recipient", "path", "doc_id")
 
+# Destroying or overwriting these breaks the machine or its access control, whatever the user asked for.
+# Signals listed in HARD_BLOCK_SIGNALS force BLOCK in the scorer, after ML/LLM, so no model can talk them down.
+PROTECTED_PATH_RX = [re.compile(p, re.I) for p in (
+    r"^[/\\]+\*?$",                                                  # / or /*
+    r"^~[/\\]*\*?$",                                                 # ~ or ~/*
+    r"^/(?:etc|bin|sbin|boot|usr|lib|lib64|sys|proc|dev|var/lib|system)(?:/|$)",
+    r"(?:^|[/\\])\.(?:ssh|gnupg)(?:[/\\]|$)",
+    r"^[a-z]:[/\\]*(?:windows|program files)?(?:[/\\]|$)",           # C:\ , C:\Windows
+)]
+PATH_KEYS = ("path", "file", "filename", "target", "directory", "dir")
+DESTRUCTIVE_PATH_ACTIONS = {"delete_file", "file_write"}
+DANGEROUS_SHELL_RX = [re.compile(p, re.I) for p in (
+    r"\brm\s+(?:-\w+\s+)*-\w*[rf]\w*\s+(?:-\w+\s+)*(?:/|~|/\*|~/\*)(?:\s|$|;)",   # rm -rf / , rm -rf ~
+    r"\bmkfs(?:\.\w+)?\b",
+    r"\bdd\b[^;|]*\bof=/dev/",
+    r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:",                      # fork bomb
+)]
+HARD_BLOCK_SIGNALS = {"protected_path"}
+
 
 @dataclass
 class Signal:
@@ -97,7 +116,9 @@ def _mentioned(value, text: str) -> bool:
     if "@" in v:
         cands.add(v.split("@")[0])                      # bob@x.com -> bob
     if "/" in v or "\\" in v:
-        cands.add(re.split(r"[\\/]", v.rstrip("/\\"))[-1])  # /a/b/notes.txt -> notes.txt
+        name = re.split(r"[\\/]", v.rstrip("/\\"))[-1]
+        cands.add(name)                                  # /a/b/notes.txt -> notes.txt
+        cands.add(name.rsplit(".", 1)[0])                # notes.txt -> notes
     return any(len(_norm(c)) >= 3 and _norm(c) in t for c in cands)
 
 
@@ -162,12 +183,25 @@ def rule_score(req: ToolCallRequest) -> Tuple[int, list]:
     if hit:
         sig.append(Signal("sensitive_data", 20, f"touches sensitive data ('{hit}')"))
 
+    if req.action in DESTRUCTIVE_PATH_ACTIONS:
+        hit_path = next((str(a[k]).strip() for k in PATH_KEYS
+                         if a.get(k) and any(p.search(str(a[k]).strip()) for p in PROTECTED_PATH_RX)), None)
+        if hit_path:
+            sig.append(Signal("protected_path", 50, f"{label} targets protected system path {hit_path}"))
+    elif req.action in ("shell_exec", "code_exec"):
+        cmd = str(a.get("command") or a.get("cmd") or a.get("code") or "")
+        if any(p.search(cmd) for p in DANGEROUS_SHELL_RX):
+            sig.append(Signal("protected_path", 50, f"command can destroy the system ({cmd.strip()[:40]})"))
+
     if req.action == "share_document" and str(a.get("permission", "")).lower() in WRITE_PERMISSIONS:
         sig.append(Signal("write_access", 20, f"grants {a.get('permission')} access"))
 
     # 5. does the action contradict / exceed the user's request?
     if not _action_implied(req):
-        sig.append(Signal("action_not_requested", 25, f"user's request does not call for a {label}"))
+        # A read the user didn't ask for is odd but does no damage on its own; the sensitive-data and
+        # untrusted-target signals catch the dangerous reads.
+        pts = 10 if req.action == "read_file" else 25
+        sig.append(Signal("action_not_requested", pts, f"user's request does not call for a {label}"))
     unmentioned = [
         v for k, v in _targets(req)
         if not (req.action == "wire_transfer" and k == "to" and v in KNOWN_PAYEES) and not _mentioned(v, ur)
@@ -179,6 +213,8 @@ def rule_score(req: ToolCallRequest) -> Tuple[int, list]:
     hits = [m.group(0) for p in INJECTION_PATTERNS if (m := p.search(ctx or ""))]
     if hits:
         sig.append(Signal("injection_phrase", 25, f"injection-style instruction in source content (\"{hits[0].strip()[:40]}\")"))
+    # A sensitive target picked up from untrusted content is suspicious even when the wording dodges the regexes.
+    if hits or hit:
         taken = [v for _, v in _targets(req) if _mentioned(v, ctx) and not _mentioned(v, ur)]
         if taken:
             sig.append(Signal("target_from_untrusted", 20, f"target {', '.join(taken)} came from untrusted content, not the user"))
