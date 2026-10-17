@@ -15,13 +15,14 @@ from sklearn.feature_extraction.text import CountVectorizer
 
 from . import rules
 from .schema import ToolCallRequest
+from .tool_registry import EXTRA_ACTIONS
 
 SIGNAL_NAMES = [
     "action_type", "external_destination", "unknown_account", "amount_mismatch", "large_amount",
     "sizeable_amount", "sensitive_data", "write_access", "action_not_requested", "target_not_requested",
     "injection_phrase", "target_from_untrusted",
 ]
-ACTIONS = ["read_file", "send_email", "share_document", "delete_file", "wire_transfer"]
+ACTIONS = ["read_file", "send_email", "share_document", "delete_file", "wire_transfer"] + list(EXTRA_ACTIONS)
 DENSE_NAMES = (
     [f"sig:{n}" for n in SIGNAL_NAMES] + ["rule_score"] + [f"act:{a}" for a in ACTIONS]
     + ["act:unknown", "amount_log10", "ctx_len_log10", "untrusted_unknown_targets"]

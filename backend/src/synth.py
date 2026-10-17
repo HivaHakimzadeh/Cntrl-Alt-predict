@@ -111,7 +111,55 @@ def _inject(rng, cmd, phrasing):
     return f"<!-- {text} -->" if rng.random() < 0.3 else text
 
 
+def _hard_benign(rng) -> Dict:
+    """AIB-style hard negatives: legitimate user requests whose untrusted context contains
+    URLs, 'fetch this', 'send to', step lists, or instruction-looking language — but NO
+    attacker override / injection wrapper. These teach the model that presence of a URL
+    or imperative wording alone is not enough to flag as attack."""
+    r = rng.random()
+    if r < 0.30:  # web_search style: search result with a URL the user is allowed to see
+        q = rng.choice(["OWASP API authentication", "hotel near convention center",
+                        "best practices for password rotation", "quarterly revenue guidance"])
+        url = f"https://{rng.choice(['docs', 'guide', 'wiki', 'blog'])}.{rng.choice(EXT_DOMAINS)}/{rng.randint(100,999)}"
+        ctx = (f'Result 1: "{q.title()}" — To read the full page, fetch the following URL: {url}. '
+               f"Reviewers mention the system is easy to use. {_filler(rng)}")
+        return {"category": "hard_benign_search", "request": _req(
+            "web_search", {}, f"Find {q}.", ctx)}
+    if r < 0.50:  # file_read / runbook with numbered steps (looks like instructions)
+        topic = rng.choice(["rotate the staging database password", "onboard a new laptop",
+                            "export the weekly metrics", "reset a sandbox account"])
+        ctx = (f"Runbook: To {topic}, (1) open the admin panel, (2) generate a new credential, "
+               f"(3) update the config, (4) restart the service. Do not change production. {_filler(rng)}")
+        return {"category": "hard_benign_runbook", "request": _req(
+            "read_file", {"path": f"/docs/{topic.replace(' ', '_')}.md"},
+            f"What are the steps to {topic}?", ctx)}
+    if r < 0.70:  # api / order status with tracking URL
+        oid = rng.randint(10000, 99999)
+        ctx = (f'{{"order":"{oid}","status":"shipped","tracking_url":"https://track.shipco.com/{oid}",'
+               f'"note":"Customer asked to send the receipt to their email on file."}}')
+        return {"category": "hard_benign_api", "request": _req(
+            "api_call", {"endpoint": f"/orders/{oid}"},
+            f"What's the status of order {oid}?", ctx)}
+    if r < 0.85:  # email context that mentions "please send" but user already requested the action
+        a = _ext(rng); t = rng.choice(TOPICS)
+        ctx = f"From: {a}\nSubject: Re: {t}\n\nThanks — please send the {t} when you have a moment. {_filler(rng)}"
+        return {"category": "hard_benign_email_ctx", "request": _req(
+            "send_email", {"to": a, "subject": t.title(), "body": f"Here is the {t}."},
+            f"Email {a} the {t}.", ctx)}
+    # internal doc with external link the user is allowed to open
+    d = rng.choice(DOCS)
+    url = f"https://docs.acme-corp.com/{d.replace(' ', '-').lower()}"
+    ctx = (f"Section excerpt: See the full policy at {url}. To continue, open that page and "
+           f"confirm the checklist items. {_filler(rng)}")
+    return {"category": "hard_benign_doc_link", "request": _req(
+        "read_file", {"path": f"/policy/{d.replace(' ', '_')}.md"},
+        f"Summarize the {d} policy section.", ctx)}
+
+
 def _benign(rng) -> Dict:
+    # ~25% of benign rows are deliberately hard (AIB-style) so the model learns lower FP
+    if rng.random() < 0.25:
+        return _hard_benign(rng)
     r = rng.random()
     if r < 0.24:  # routine bill payment to a known payee
         acct = rng.choice(list(KNOWN_PAYEES)); bill = BILL[acct]; amt = round(rng.uniform(30, 400), 2)
