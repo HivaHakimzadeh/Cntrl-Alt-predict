@@ -14,3 +14,18 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+from src.schema import ToolCallRequest
+from src.interceptor import intercept
+from src.ml_model import available
+
+
+@app.get("/model-status")
+def model_status():
+    return {"ml_available": available()}
+
+
+@app.post("/evaluate")
+def evaluate_action(request: ToolCallRequest):
+    return intercept(request)
