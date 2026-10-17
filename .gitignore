@@ -1,0 +1,14 @@
+
+# Guardrail runtime files
+backend/logs/
+backend/results/
+backend/data/llm_cache.json
+*.pem
+*.key
+
+# Guardrail runtime files
+backend/logs/
+backend/results/
+backend/data/llm_cache.json
+*.pem
+*.key
