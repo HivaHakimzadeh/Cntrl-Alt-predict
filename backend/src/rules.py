@@ -37,16 +37,23 @@ SENSITIVE_KEYWORDS = (
     "social security", "private key", "id_rsa", ".env", "customer list",
     "customer_list", "payroll", "salary", "credit card", "iban",
 )
+# High-confidence sensitive payload markers for P-5. Generic words such as "password"
+# stay scoring hints because benign messages often discuss reset instructions.
+PROHIBITED_EXTERNAL_PAYLOADS = (
+    "customer list", "customer_list", "payroll", "salary", "ssn", "social security",
+    "private key", "id_rsa", ".env", "api_key", "apikey", "credit card", "iban",
+    "password is", "password=", "passwd=", "credential:", "credentials:",
+)
 WRITE_PERMISSIONS = {"edit", "write", "owner", "admin", "editor"}
 
 _VERB_SUFFIX = r"(?:s|es|d|ed|ing)?"
 ACTION_VERBS = {         # words in the USER's request that justify the action
     "wire_transfer": ["pay", "transfer", "wire", "remit", "settle", "reimburse", "send money"],
     "delete_file": ["delete", "remove", "erase", "clean", "clear", "wipe", "trash", "purge"],
-    "send_email": ["send", "sent", "reply", "respond", "forward", "write", "draft", "compose", "notify", "message", "tell"],
+    "send_email": ["send", "sent", "email", "mail", "reply", "respond", "forward", "write", "draft", "compose", "notify", "message", "tell"],
     "share_document": ["share", "give", "grant", "collaborate", "forward", "send", "invite"],
     "read_file": ["read", "open", "show", "summarize", "summarise", "check", "review", "look", "view",
-                  "print", "display", "analyze", "analyse", "find", "get", "fetch", "load", "parse", "tell"],
+                  "print", "display", "analyze", "analyse", "find", "get", "fetch", "load", "parse", "tell", "explain", "describe", "steps"],
 }
 ACTION_VERB_RX = {
     a: re.compile(r"\b(?:" + "|".join(v) + r")" + _VERB_SUFFIX + r"\b", re.I) for a, v in ACTION_VERBS.items()
@@ -92,13 +99,29 @@ def _is_internal(domain: str) -> bool:
 
 def _mentioned(value, text: str) -> bool:
     """Is this target (account / email / path / doc) referenced in `text`?"""
-    t, v = _norm(text), str(value)
+    t, v = _norm(text or ""), str(value)
     cands = {v}
     if "@" in v:
-        cands.add(v.split("@")[0])                      # bob@x.com -> bob
+        cands.add(v.split("@")[0])  # bob@x.com -> bob
     if "/" in v or "\\" in v:
-        cands.add(re.split(r"[\\/]", v.rstrip("/\\"))[-1])  # /a/b/notes.txt -> notes.txt
-    return any(len(_norm(c)) >= 3 and _norm(c) in t for c in cands)
+        name = re.split(r"[\\/]", v.rstrip("/\\"))[-1]
+        cands.add(name)
+        cands.add(re.sub(r"\.[^.]+$", "", name))  # notes.txt -> notes
+    for c in cands:
+        token = str(c).casefold()
+        norm = _norm(token)
+        if len(norm) >= 3 and norm in t:
+            return True
+        if len(token) >= 2 and re.search(r"(?<![a-z0-9])" + re.escape(token) + r"(?![a-z0-9])", (text or "").casefold()):
+            return True
+    return False
+
+
+def _exactly_authorized_recipient(value: str, text: str) -> bool:
+    """Require the exact email address in the trusted request; a matching name is not enough."""
+    if "@" not in value:
+        return False
+    return value.casefold() in (text or "").casefold()
 
 
 def _targets(req: ToolCallRequest):
@@ -117,9 +140,6 @@ def _action_implied(req: ToolCallRequest) -> bool:
     rx = ACTION_VERB_RX.get(req.action)
     if rx is None or rx.search(req.user_request):
         return True
-    if req.action in ("send_email", "share_document"):   # "Email bob ..." names the recipient
-        tgt = req.arguments.get("to") or req.arguments.get("recipient")
-        return bool(tgt) and _mentioned(tgt, req.user_request)
     return False
 
 
@@ -136,7 +156,12 @@ def rule_score(req: ToolCallRequest) -> Tuple[int, list]:
     if req.action in ("send_email", "share_document"):
         addr = str(a.get("to") or a.get("recipient") or "")
         d = _domain(addr)
-        if d and not _is_internal(d):
+        explicitly_authorized_email = (
+            req.action == "send_email"
+            and _action_implied(req)
+            and _exactly_authorized_recipient(addr, ur)
+        )
+        if d and not _is_internal(d) and not explicitly_authorized_email:
             sig.append(Signal("external_destination", 20, f"recipient {addr} is outside the organization"))
     elif req.action == "wire_transfer":
         acct = str(a.get("to", ""))
@@ -147,7 +172,7 @@ def rule_score(req: ToolCallRequest) -> Tuple[int, list]:
     amount = _num(a.get("amount"))
     if amount is not None:
         stated = [float(x.replace(",", "")) for x in re.findall(r"\$\s?([\d,]+(?:\.\d+)?)", ur) if x.strip(",")]
-        authorized = any(abs(amount - s) <= max(0.01, 0.01 * s) for s in stated)
+        authorized = any(abs(amount - s) <= 0.01 for s in stated)
         if stated and not authorized:
             sig.append(Signal("amount_mismatch", 25, f"amount ${amount:,.0f} differs from the amount in the user's request"))
         if not authorized:
@@ -170,7 +195,8 @@ def rule_score(req: ToolCallRequest) -> Tuple[int, list]:
         sig.append(Signal("action_not_requested", 25, f"user's request does not call for a {label}"))
     unmentioned = [
         v for k, v in _targets(req)
-        if not (req.action == "wire_transfer" and k == "to" and v in KNOWN_PAYEES) and not _mentioned(v, ur)
+        if not (req.action == "wire_transfer" and k == "to" and v in KNOWN_PAYEES)
+        and not _mentioned(v, ur) and _mentioned(v, ctx)
     ]
     if unmentioned:
         sig.append(Signal("target_not_requested", 15, f"target {', '.join(unmentioned)} is not mentioned in the user's request"))
@@ -184,5 +210,33 @@ def rule_score(req: ToolCallRequest) -> Tuple[int, list]:
             sig.append(Signal("target_from_untrusted", 20, f"target {', '.join(taken)} came from untrusted content, not the user"))
 
     return min(100, sum(s.points for s in sig)), sig
+
+
+def mandatory_decision(req: ToolCallRequest, signals: list[Signal]) -> Optional[str]:
+    """Policy floors that thresholds and learned layers cannot override."""
+    names = {s.name for s in signals}
+    if req.action not in ACTION_BASE and req.action not in EXTRA_BASE:
+        return "QUARANTINE"  # P-12: unknown tools fail closed
+    if req.action == "wire_transfer" and "amount_mismatch" in names:
+        return "BLOCK"  # P-3: amount integrity
+    if req.action == "share_document" and "external_destination" in names:
+        return "QUARANTINE"  # P-4: external sharing always needs review
+    if req.action == "send_email":
+        recipient = str(req.arguments.get("to") or req.arguments.get("recipient") or "")
+        domain = _domain(recipient)
+        payload = json.dumps(req.arguments, default=str).casefold()
+        if domain and not _is_internal(domain) and any(term in payload for term in PROHIBITED_EXTERNAL_PAYLOADS):
+            return "BLOCK"  # P-5: sensitive data cannot be emailed externally
+    if "unknown_account" in names:
+        return "QUARANTINE"  # P-1: unapproved payees need review
+    if req.action == "delete_file":
+        path = str(req.arguments.get("path", "")).casefold()
+        if any(word in path for word in ("backup", "ledger", "tax", "payroll", "financial")):
+            return "QUARANTINE"  # P-7: backups and financial records need review
+    if "action_not_requested" in names or "target_not_requested" in names:
+        if "injection_phrase" in names:
+            return "BLOCK"  # P-9: an injection-caused action must not run
+        return "QUARANTINE"  # P-10/P-11: user confirmation is required
+    return None
 
 

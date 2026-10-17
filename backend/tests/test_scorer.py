@@ -108,11 +108,19 @@ def test_allowed_call_executes_and_is_logged(caplog):
 
 
 def test_quarantined_call_returns_message_and_is_queued(caplog):
-    interceptor.set_context("Email Bob the notes.", "")
+    interceptor.set_context("Email Bob the password reset steps.", "")
     with caplog.at_level(logging.INFO, logger="fake_tools"):
-        out = send_email("bob@outside-firm.com", "password reset", "your password is ...")
+        out = send_email("bob@outside-firm.com", "Password reset", "Here are the password reset steps.")
     assert out.startswith("QUARANTINED") and "EXECUTED" not in caplog.text
     assert len(interceptor.QUARANTINE_QUEUE) == 1
+
+
+def test_external_email_with_credential_is_blocked_even_when_requested(caplog):
+    interceptor.set_context("Email bob@outside-firm.com the password.", "")
+    with caplog.at_level(logging.INFO, logger="fake_tools"):
+        with pytest.raises(ActionBlocked):
+            send_email("bob@outside-firm.com", "Password", "Your password is hunter2.")
+    assert "EXECUTED" not in caplog.text
 
 
 def test_log_schema_has_required_fields():

@@ -16,7 +16,7 @@ from typing import Optional, Tuple
 
 from . import llm_local, ml_model, policy, policy_rag
 from .llm_local import cache_key, cache_path, llm_enabled, store_verdict  # noqa: F401  (re-exported)
-from .rules import Signal, rule_score  # noqa: F401  (re-exported)
+from .rules import Signal, mandatory_decision, rule_score  # noqa: F401  (re-exported)
 from .schema import ScorerResponse, ToolCallRequest
 
 
@@ -56,9 +56,14 @@ def score_request(req: ToolCallRequest, use_ml: Optional[bool] = None,
     verdict = (llm_local.judge(req, signals, clauses, stage1)                  # 4. generative (gray zone only)
                if (use_llm and in_gray_zone(stage1)) else None)
     final = max(0, min(100, fold(stage1, verdict["risk"]) if verdict else stage1))
+    mandatory = mandatory_decision(req, signals)
+    if mandatory == "QUARANTINE":
+        final = max(final, t["allow_below"])
+    elif mandatory == "BLOCK":
+        final = max(final, t["block_at"])
 
     level, decision = policy.apply(final)
-    if verdict and verdict.get("reason"):
+    if verdict and verdict.get("reason") and not mandatory:
         reason = verdict["reason"]
     else:
         reason = _rule_reason(signals, final)
@@ -67,6 +72,7 @@ def score_request(req: ToolCallRequest, use_ml: Optional[bool] = None,
     resp = ScorerResponse(score=final, level=level, decision=decision, reason=reason)
     breakdown = {
         "rule_score": rule,
+        "mandatory_decision": mandatory,
         "ml_used": ml_risk is not None, "ml_risk": ml_risk, "stage1_score": stage1,
         "policy_clauses": [c["id"] for c in clauses],
         "llm_used": verdict is not None, "llm_risk": verdict["risk"] if verdict else None,
