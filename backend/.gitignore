@@ -1,3 +1,5 @@
+cat >> .gitignore <<'EOF'
+
 # Python
 .venv/
 __pycache__/
@@ -14,7 +16,4 @@ dist/
 
 # macOS
 .DS_Store
-
-# Generated at runtime
-model/
-logs/
+EOF
