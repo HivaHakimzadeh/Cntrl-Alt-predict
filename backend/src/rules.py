@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 from .schema import ToolCallRequest
+from .tool_registry import EXTRA_BASE
 
 # =============================================================================
 # TUNABLE CONFIG  (everything a judge might ask "why?" about lives here)
@@ -128,7 +129,7 @@ def rule_score(req: ToolCallRequest) -> Tuple[int, list]:
     label = req.action.replace("_", " ")
 
     # 1. inherent blast radius of the action
-    base = ACTION_BASE.get(req.action, UNKNOWN_ACTION_BASE)
+    base = ACTION_BASE.get(req.action, EXTRA_BASE.get(req.action, UNKNOWN_ACTION_BASE))
     sig.append(Signal("action_type", base, f"{label} is a {'high-impact' if base >= 15 else 'low-impact'} action"))
 
     # 2. external / unknown destination
@@ -162,7 +163,7 @@ def rule_score(req: ToolCallRequest) -> Tuple[int, list]:
         sig.append(Signal("sensitive_data", 20, f"touches sensitive data ('{hit}')"))
 
     if req.action == "share_document" and str(a.get("permission", "")).lower() in WRITE_PERMISSIONS:
-        sig.append(Signal("write_access", 10, f"grants {a.get('permission')} access"))
+        sig.append(Signal("write_access", 20, f"grants {a.get('permission')} access"))
 
     # 5. does the action contradict / exceed the user's request?
     if not _action_implied(req):

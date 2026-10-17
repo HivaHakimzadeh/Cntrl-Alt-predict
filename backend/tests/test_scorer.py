@@ -14,9 +14,15 @@ from src.tools import send_email, wire_transfer
 
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch, tmp_path):
-    """Rules-only, deterministic, and never touching the real log / cache files."""
+    """Rules-only, deterministic, and never touching the real log / cache files.
+
+    Pin ALLOW_BELOW=40 (the new default) so a user session env like ALLOW_BELOW=50
+    cannot make these tests fail.
+    """
     monkeypatch.setenv("GUARDRAIL_LLM", "off")
     monkeypatch.setenv("GUARDRAIL_ML", "off")
+    monkeypatch.setenv("GUARDRAIL_ALLOW_BELOW", "40")
+    monkeypatch.setenv("GUARDRAIL_BLOCK_AT", "70")
     monkeypatch.setenv("GUARDRAIL_LOG", str(tmp_path / "log.jsonl"))
     monkeypatch.setenv("GUARDRAIL_LLM_CACHE", str(tmp_path / "cache.json"))
     interceptor.QUARANTINE_QUEUE.clear()
@@ -26,10 +32,12 @@ def req(action, args, ur, ctx=""):
     return ToolCallRequest(action=action, arguments=args, user_request=ur, source_context=ctx)
 
 
-# ---- policy --------------------------------------------------------------
+# ---- policy (defaults: ALLOW < 40, QUARANTINE 40-69, BLOCK >= 70; high_at = 55) ----
 @pytest.mark.parametrize("score,decision,level", [
-    (0, "ALLOW", "LOW"), (29, "ALLOW", "LOW"), (30, "QUARANTINE", "MEDIUM"),
-    (50, "QUARANTINE", "HIGH"), (69, "QUARANTINE", "HIGH"), (70, "BLOCK", "CRITICAL"), (100, "BLOCK", "CRITICAL"),
+    (0, "ALLOW", "LOW"), (39, "ALLOW", "LOW"),
+    (40, "QUARANTINE", "MEDIUM"), (50, "QUARANTINE", "MEDIUM"),
+    (55, "QUARANTINE", "HIGH"), (69, "QUARANTINE", "HIGH"),
+    (70, "BLOCK", "CRITICAL"), (100, "BLOCK", "CRITICAL"),
 ])
 def test_policy_thresholds(score, decision, level):
     assert policy.apply(score) == (level, decision)

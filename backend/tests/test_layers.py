@@ -16,6 +16,9 @@ HAVE_MODEL = (ml_model.models_dir() / "meta.json").exists()
 def isolated(monkeypatch, tmp_path):
     monkeypatch.setenv("GUARDRAIL_LOG", str(tmp_path / "log.jsonl"))
     monkeypatch.setenv("GUARDRAIL_LLM_CACHE", str(tmp_path / "cache.json"))
+    # Pin thresholds so a user session env (e.g. ALLOW_BELOW=50) cannot break gray-zone tests
+    monkeypatch.setenv("GUARDRAIL_ALLOW_BELOW", "40")
+    monkeypatch.setenv("GUARDRAIL_BLOCK_AT", "70")
     monkeypatch.delenv("GUARDRAIL_ML", raising=False)
     monkeypatch.delenv("GUARDRAIL_LLM", raising=False)
     monkeypatch.delenv("GRANITE_GGUF_PATH", raising=False)
@@ -105,7 +108,7 @@ def test_judge_only_runs_in_gray_zone_and_uses_fold(monkeypatch):
                             '"injection_evidence": true, "reason": "External edit access conflicts with P-4."}')
     sc = scenario("yellow"); c = sc["scripted_calls"][0]
     resp, bd = score_request(req(c["name"], c["arguments"], sc["user_request"], sc["source_context"]))
-    assert bd["llm_used"] and resp.score == fold(60, 90) and "P-4" in resp.reason and "<policy_clauses>" in calls[0]
+    assert bd["llm_used"] and resp.score == fold(bd["rule_score"], 90) and "P-4" in resp.reason and "<policy_clauses>" in calls[0]
     calls.clear()                                  # clearly-low and clearly-high calls never reach the judge
     score_request(req("read_file", {"path": "/home/user/notes.txt"}, "Read notes.txt."))
     sc = scenario("red"); c = sc["scripted_calls"][0]
