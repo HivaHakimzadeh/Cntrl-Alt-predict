@@ -30,6 +30,8 @@ The team's existing `/evaluate` contract is unchanged. Presets only fill request
 inputs. No action is executed, including after human approval. Dashboard audit
 history and review queue live in the API process and clear on restart. Statistics
 deduplicate action IDs in the most recent 100 audit events; they are not
-lifetime totals. Activity refreshes after evaluation/review, or manually.
+lifetime totals. Activity refreshes after evaluation/review and automatically
+every five seconds while the dashboard is visible. Changing the endpoint pauses
+polling until **Connect / refresh** is clicked.
 
 Verify with `npm run build` and `npm run lint`.
