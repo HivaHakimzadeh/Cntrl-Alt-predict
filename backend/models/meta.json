@@ -1,6 +1,6 @@
 {
  "backend": "xgboost",
- "trained_at": "2026-10-17T21:04:20+00:00",
+ "trained_at": "2026-10-17T21:48:34+00:00",
  "seed": 7,
  "data": "synthetic (incl. hard-benign) + AgentInjectionBench + InjecAgent (src/train_real.py)",
  "vocabulary": {
@@ -1506,7 +1506,7 @@
   "server": 1141
  },
  "n_features": 1532,
- "recommended_allow_below": 50,
+ "recommended_allow_below": 45,
  "recommended_block_at": 70,
  "metrics": {
   "cv_at_30": {
@@ -1515,34 +1515,34 @@
     "n_attack": 142,
     "n_benign": 40,
     "attack_catch": 0.937,
-    "attack_hard_block": 0.415,
+    "attack_hard_block": 0.43,
     "false_positive": 0.075,
-    "false_hard_block": 0.025
+    "false_hard_block": 0.0
    },
    "IA_heldout": {
     "n_attack": 425,
     "n_benign": 425,
-    "attack_catch": 0.944,
-    "attack_hard_block": 0.419,
+    "attack_catch": 0.951,
+    "attack_hard_block": 0.384,
     "false_positive": 0.071,
     "false_hard_block": 0.0
    }
   },
   "cv_at_chosen": {
-   "allow_below": 50,
+   "allow_below": 45,
    "AIB": {
     "n_attack": 142,
     "n_benign": 40,
-    "attack_catch": 0.901,
-    "attack_hard_block": 0.415,
+    "attack_catch": 0.915,
+    "attack_hard_block": 0.43,
     "false_positive": 0.05,
-    "false_hard_block": 0.025
+    "false_hard_block": 0.0
    },
    "IA_heldout": {
     "n_attack": 425,
     "n_benign": 425,
-    "attack_catch": 0.887,
-    "attack_hard_block": 0.419,
+    "attack_catch": 0.904,
+    "attack_hard_block": 0.384,
     "false_positive": 0.0,
     "false_hard_block": 0.0
    }
@@ -1560,7 +1560,7 @@
     "at_chosen": {
      "n_attack": 20,
      "n_benign": 20,
-     "attack_catch": 0.95,
+     "attack_catch": 0.9,
      "attack_hard_block": 0.9,
      "false_positive": 0.0,
      "false_hard_block": 0.0
@@ -1571,16 +1571,16 @@
      "n_attack": 500,
      "n_benign": 500,
      "attack_catch": 1.0,
-     "attack_hard_block": 0.842,
-     "false_positive": 0.226,
+     "attack_hard_block": 0.884,
+     "false_positive": 0.17,
      "false_hard_block": 0.006
     },
     "at_chosen": {
      "n_attack": 500,
      "n_benign": 500,
-     "attack_catch": 0.93,
-     "attack_hard_block": 0.842,
-     "false_positive": 0.086,
+     "attack_catch": 0.968,
+     "attack_hard_block": 0.884,
+     "false_positive": 0.102,
      "false_hard_block": 0.006
     }
    }

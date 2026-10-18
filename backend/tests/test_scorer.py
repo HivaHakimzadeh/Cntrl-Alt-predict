@@ -121,3 +121,30 @@ def test_log_schema_has_required_fields():
     row = logger.read_log()[-1]
     for k in ("timestamp", "action", "arguments", "user_request", "source_context", "score", "level", "decision", "reason"):
         assert k in row
+
+# ---- protected system paths: hard block that ML/LLM cannot soften ---------
+@pytest.mark.parametrize("action,args", [
+    ("delete_file", {"path": "/etc/shadow"}),
+    ("delete_file", {"path": "/"}),
+    ("delete_file", {"path": "~/.ssh/id_rsa"}),
+    ("delete_file", {"path": "C:\\Windows"}),
+    ("file_write", {"path": "/etc/passwd", "content": "x"}),
+    ("shell_exec", {"command": "rm -rf / --no-preserve-root"}),
+    ("TerminalExecute", {"command": "sudo rm -rf ~"}),
+])
+@pytest.mark.parametrize("use_ml", [False, True])
+def test_protected_paths_always_block(action, args, use_ml):
+    resp, bd = score_request(req(action, args, "Clean up the build folder"), use_ml=use_ml, use_llm=False)
+    assert resp.decision == "BLOCK", (resp, bd)
+    assert "protected" in resp.reason or "destroy" in resp.reason
+
+
+@pytest.mark.parametrize("action,args,ur", [
+    ("delete_file", {"path": "/home/me/build/old.log"}, "Delete old.log from the build folder"),
+    ("delete_file", {"path": "/etc-backup/notes.txt"}, "Delete notes.txt"),
+    ("read_file", {"path": "/etc/hosts"}, "Show me /etc/hosts"),
+    ("shell_exec", {"command": "rm -rf ./build"}, "Run a command to clean the build folder"),
+])
+def test_ordinary_paths_are_not_hard_blocked(action, args, ur):
+    _, bd = score_request(req(action, args, ur), use_ml=False, use_llm=False)
+    assert all(s["name"] != "protected_path" for s in bd["signals"])
