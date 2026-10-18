@@ -14,6 +14,12 @@ This project is a guardrail that sits between an agent and its tools. Before any
 
 Every decision comes with a plain-English reason and is written to an audit log.
 
+## Dashboard demo
+
+[Watch or download the dashboard walkthrough (MP4)](docs/media/guard-demo.mp4) · [Direct video link](https://raw.githubusercontent.com/HivaHakimzadeh/Cntrl-Alt-predict/main/docs/media/guard-demo.mp4)
+
+This silent, approximately one-minute recording shows the dashboard connected to a local backend: a routine payment is allowed, external sharing is quarantined and approved by a reviewer, an injected transfer is blocked, and all three evaluations appear in the audit trail. Approval records a review decision; this dashboard demo does not execute real payments or file operations. The clip has no narration or audio and can accompany the team's narrated project video.
+
 ---
 
 ## Example
