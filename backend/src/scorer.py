@@ -16,7 +16,7 @@ from typing import Optional, Tuple
 
 from . import llm_local, ml_model, policy, policy_rag
 from .llm_local import cache_key, cache_path, llm_enabled, store_verdict  # noqa: F401  (re-exported)
-from .rules import Signal, rule_score  # noqa: F401  (re-exported)
+from .rules import HARD_BLOCK_SIGNALS, Signal, rule_score  # noqa: F401  (re-exported)
 from .schema import ScorerResponse, ToolCallRequest
 
 
@@ -56,6 +56,8 @@ def score_request(req: ToolCallRequest, use_ml: Optional[bool] = None,
     verdict = (llm_local.judge(req, signals, clauses, stage1)                  # 4. generative (gray zone only)
                if (use_llm and in_gray_zone(stage1)) else None)
     final = max(0, min(100, fold(stage1, verdict["risk"]) if verdict else stage1))
+    if any(s.name in HARD_BLOCK_SIGNALS for s in signals):              # never softened by ML or LLM
+        final = max(final, t["block_at"])
 
     level, decision = policy.apply(final)
     if verdict and verdict.get("reason"):
