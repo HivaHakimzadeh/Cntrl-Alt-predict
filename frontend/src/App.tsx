@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import './App.css'
 
@@ -16,7 +16,9 @@ const message = (e: unknown) => e instanceof Error ? e.message : 'Unexpected err
 
 function App() {
   const [api, setApi] = useState(() => localStorage.getItem('guardrail-api') || 'http://localhost:8000')
+  const [activeApi, setActiveApi] = useState(() => localStorage.getItem('guardrail-api') || 'http://localhost:8000')
   const [connected, setConnected] = useState(false)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [logs, setLogs] = useState<Evaluation[]>([])
   const [queue, setQueue] = useState<Evaluation[]>([])
   const [selected, setSelected] = useState<Evaluation | null>(null)
@@ -43,9 +45,41 @@ function App() {
   }
   async function refresh() {
     setBusy(true); setError('')
-    try { await load() } catch (e) { setConnected(false); setError(`Cannot connect. Check your backend address and server. ${message(e)}`) }
+    try { await load(); setActiveApi(api.trim()); setLastUpdated(new Date()) } catch (e) { setConnected(false); setError(`Cannot connect. Check your backend address and server. ${message(e)}`) }
     finally { setBusy(false) }
   }
+
+  useEffect(() => {
+    if (api.trim() !== activeApi) return
+    let cancelled = false
+    let inFlight = false
+    async function poll() {
+      if (document.visibilityState === 'hidden' || inFlight) return
+      inFlight = true
+      try {
+        const base = activeApi.replace(/\/+$/, '')
+        const responses = await Promise.all(['/health', '/dashboard/logs?limit=100', '/dashboard/quarantine'].map(path => fetch(`${base}${path}`, { signal: AbortSignal.timeout(10000) })))
+        if (responses.some(response => !response.ok)) throw new Error('Backend returned an error')
+        const history = await responses[1].json() as Evaluation[]
+        const pending = await responses[2].json() as Evaluation[]
+        if (!cancelled) {
+          setLogs(history)
+          setQueue(pending)
+          setConnected(true)
+          setLastUpdated(new Date())
+          setError(previous => previous.startsWith('Cannot connect.') ? '' : previous)
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setConnected(false)
+          setError(`Cannot connect. Check your backend address and server. ${message(e)}`)
+        }
+      } finally { inFlight = false }
+    }
+    void poll()
+    const interval = window.setInterval(() => void poll(), 5000)
+    return () => { cancelled = true; window.clearInterval(interval) }
+  }, [activeApi, api])
 
   function choosePreset(index: number) {
     const call = presets[index].call
@@ -89,7 +123,7 @@ function App() {
     <aside className="sidebar"><button className="brand" onClick={() => openView('control')}><span>◈</span> GUARD.</button><div className="workspace-label">SECURITY WORKSPACE</div><button className={`nav-item ${view === 'control' ? 'active' : ''}`} onClick={() => openView('control')}>▦ <span>Action control</span> ↗</button><button className={`nav-item ${view === 'logs' ? 'active' : ''}`} onClick={() => openView('logs')}>≡ <span>Audit trail</span></button><button className={`nav-item ${view === 'queue' ? 'active' : ''}`} onClick={() => openView('queue')}>◇ <span>Human review</span><b>{queue.length}</b></button><div className="sidebar-bottom"><small>IBM Z DATATHON 2026</small><p>Ctrl + Alt + Predict</p><small>Agentic Blast-Radius Guardrail</small></div></aside>
     <main id="overview"><header className="topbar"><span>Workspace <span className="slash">/</span><strong>{view === 'control' ? 'Action control' : view === 'logs' ? 'Audit trail' : 'Human review'}</strong></span><span className={`connection ${connected ? 'online' : ''}`}>● {connected ? 'API connected' : 'API disconnected'}</span></header>
       <div className="page-content"><div className="page-heading"><div><div className="eyebrow">AGENT SECURITY / CONTROL CENTER</div><h1>{view === 'control' ? 'Trust every action.' : view === 'logs' ? 'Trace every decision.' : 'Review held actions.'}</h1><p>{view === 'control' ? 'Inspect proposed tool calls before they reach your systems.' : view === 'logs' ? 'Explore recent guardrail evaluations and their evidence.' : 'Approve or reject actions waiting for a human decision.'}</p></div><span className="outline-label">Rules + local ML</span></div>
-        <div className="connection-bar"><label htmlFor="api">Backend endpoint</label><input id="api" type="url" value={api} onChange={e => { setApi(e.target.value); setConnected(false) }} /><button className="secondary" onClick={() => void refresh()} disabled={busy}>Connect / refresh ↻</button></div>
+        <div className="connection-bar"><label htmlFor="api">Backend endpoint</label><input id="api" type="url" value={api} onChange={e => { setApi(e.target.value); setConnected(false) }} /><button className="secondary" onClick={() => void refresh()} disabled={busy}>Connect / refresh ↻</button><span className="live-note">Auto-refresh every 5s{lastUpdated && connected && api === activeApi ? ` · updated ${lastUpdated.toLocaleTimeString()}` : ''}</span></div>
         {error && <div className="error-banner" role="alert">{error}</div>}
         <section className="stats" aria-label="Recent action statistics"><Stat label="Recent actions" value={latest.length} note="Up to 100 audit events" /><Stat label="Allowed" value={latest.filter(r => r.decision === 'ALLOW').length} note="Passed policy checks" tone="allow" /><Stat label="Blocked" value={latest.filter(r => r.decision === 'BLOCK').length} note="Stopped by guardrail" tone="block" /><Stat label="Awaiting review" value={queue.length} note="Human decision required" tone="quarantine" /></section>
         {view === 'control' && <div className="evaluation-grid"><section className="panel composer"><div className="panel-title"><h2><span className="section-number">01</span> Action playground</h2><span className="muted small">Propose → inspect → decide</span></div><div className="presets">{presets.map((item, index) => <button key={item.name} className={`preset ${preset === index ? 'chosen' : ''}`} onClick={() => choosePreset(index)}><strong>{item.name}</strong><small>{item.label}</small></button>)}</div>
